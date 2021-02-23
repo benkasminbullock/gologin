@@ -42,7 +42,7 @@ type logintest struct {
 	// Given a cookie, look up its user and log them in.
 	cookie2user map[string]*user
 	// Given a user, look up their logins.
-	user2logins map[string][]login
+	user2logins map[string][]*login
 }
 
 func (l *logintest) errorPage(err error) {
@@ -83,6 +83,7 @@ var cookiePath = "/"
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
+// Make a string to be used as a cookie
 func randSeq(n int) string {
 	//	rand.Seed(res.now.UnixNano())
 	b := make([]rune, n)
