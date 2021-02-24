@@ -11,6 +11,8 @@ my ($html, $body) = make_page (
     title => $title,
     lang => 'en',
 );
+my $nav = make_nav ();
+$body->push ($nav);
 $body->push ('h1', text => $title);
 $body->add_text ("{{if .L}}\n");
 my $table = $body->push ('table');
@@ -35,3 +37,13 @@ my $form = <<EOF;
 EOF
 $body->add_text ($form);
 write_text ("$Bin/tmpl/login.html", $html->text ());
+exit;
+
+sub make_nav
+{
+    my $nav = HTML::Make->new ('div');
+    $nav->push ('a', href => '?control=stop', text => 'Stop server');
+    $nav->push ('a', href => '?show=users', text => 'Show users');
+    $nav->push ('a', href => '?show=logins', text => 'Show logins');
+    return $nav;
+}
