@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -43,36 +44,48 @@ type logintest struct {
 	cookie2user map[string]*user
 	// Given a user, look up their logins.
 	user2logins map[string][]*login
+	name2user   map[string]*user
+	// True to print messages.
+	verbose bool
+	// True if we are serving.
+	serving bool
 }
 
-func (l *logintest) errorPage(err error) {
-	fmt.Fprintf(l.w, "Error: %s", err)
+/* Send an error message to the browser. */
+func (l *logintest) errorPage(format string, a ...interface{}) {
+	l.message(format, a...)
+	if !l.serving {
+		return
+	}
+	fmt.Fprintf(l.w, "<div class='error'>\n")
+	fmt.Fprintf(l.w, format, a...)
+	fmt.Fprintf(l.w, "</div>\n")
 }
 
-// Write a new login file.
-func (l *logintest) writeLogin() {
+// Write the logins from l.logins into the login file.
+func (l *logintest) WriteLogins() {
 	bytes, err := json.MarshalIndent(l.logins, "", "\t")
 	if err != nil {
-		l.errorPage(err)
-		log.Print(err)
+		l.errorPage("Error marshalling JSON: %s", err)
+		return
 	}
 	err = ioutil.WriteFile(l.loginfile, bytes, 0666)
 	if err != nil {
-		l.errorPage(err)
-		log.Print(err)
+		l.errorPage("Error writing %s: %s", l.loginfile, err)
+		return
 	}
 }
 
 // Append a login to the login file.
 func (l *logintest) appendLogin() {
-	l.writeLogin()
+	l.WriteLogins()
 }
 
 // Store "li" to the login file.
 func (l *logintest) storeLogin(li login) {
 	l.logins = append(l.logins, li)
 	if _, err := os.Stat(l.loginfile); os.IsNotExist(err) {
-		l.writeLogin()
+		l.WriteLogins()
 		return
 	}
 	l.appendLogin()
@@ -115,6 +128,7 @@ func (l *logintest) clearCookie() {
 
 func (l *logintest) DeleteOldCookie(cookie *http.Cookie) {
 	v := cookie.Value
+	l.message("Looking for a cookie with value '%s'", v)
 	l.ReadLogins()
 	found := false
 	offset := -1
@@ -125,46 +139,54 @@ func (l *logintest) DeleteOldCookie(cookie *http.Cookie) {
 			break
 		}
 	}
-	if found {
-		log.Printf("Found cookie %s", v)
-		if offset > 0 {
-			l.logins = append(l.logins[0:offset-1], l.logins[offset+1:]...)
-		} else {
-			l.logins = l.logins[1:]
-		}
-
-		l.writeLogin()
+	if !found {
+		l.message("Did not find the cookie")
 		return
 	}
-	log.Printf("Did not find cookie %s", v)
+	l.message("Found cookie %s", v)
+	l.logins = append(l.logins[0:offset], l.logins[offset+1:]...)
+	l.WriteLogins()
 }
 
 func handler(l *logintest) {
 	l.L = login{}
+	defer func() {
+		// Blank out the login values.
+		l.L = login{}
+	}()
 	cookie, err := l.r.Cookie(cookieName)
 	if err != nil {
 		if err != http.ErrNoCookie {
-			l.errorPage(err)
-			log.Fatalf("Error from .Cookie: %s", err)
+			l.errorPage("Error from cookie: %s", err)
 		}
 	}
-	l.L.Login = l.r.FormValue("user-name")
-	if len(l.L.Login) > 0 {
+	name := l.r.FormValue("user-name")
+	if len(name) > 0 {
+		user, ok := l.name2user[name]
+		if !ok {
+			l.errorPage("Unknown user '%s'", name)
+			return
+		}
 		if cookie != nil {
 			l.DeleteOldCookie(cookie)
 		}
-		l.L.Pass = l.r.FormValue("password")
+		l.L.Login = name
+		pass := l.r.FormValue("password")
+		if pass != user.Pass {
+			l.errorPage("Wrong password '%s' should be '%s'",
+				pass, user.Pass)
+			return
+		}
+		l.L.Pass = pass
 		l.L.Cookie = randSeq(5)
 		l.storeLogin(l.L)
 		l.SetCookie(l.L.Cookie)
 	}
 	err = l.templates.Execute(l.w, l)
 	if err != nil {
-		l.errorPage(err)
-		log.Fatalf("Error executing templates: %s", err)
+		l.errorPage("Error executing template: %s", err)
+		return
 	}
-	// Blank out the login values.
-	l.L = login{}
 }
 
 func MakeHandler(l *logintest, f func(*logintest)) http.HandlerFunc {
@@ -176,7 +198,7 @@ func MakeHandler(l *logintest, f func(*logintest)) http.HandlerFunc {
 }
 
 func (l *logintest) readConfigJSON(file string) {
-	dfile := l.dir + "/" + file
+	dfile := filepath.Join(l.dir, file)
 	b, err := ioutil.ReadFile(dfile)
 	if err != nil {
 		log.Fatalf("Error reading %s: %s", dfile, err)
@@ -188,8 +210,15 @@ func (l *logintest) readConfigJSON(file string) {
 	}
 }
 
-func (l *logintest) ReadUsers() {
-	dfile := l.dir + "/" + "users.json"
+func (l *logintest) Fatalf(format string, a ...interface{}) {
+	if l.serving {
+		l.errorPage(format, a)
+	}
+	log.Fatalf(format, a)
+}
+
+func (l *logintest) ReadFile(file string) (b []byte) {
+	dfile := filepath.Join(l.dir, "users.json")
 	b, err := ioutil.ReadFile(dfile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -197,9 +226,18 @@ func (l *logintest) ReadUsers() {
 			// Allow empty user file
 			return
 		}
-		log.Fatalf("Error reading user file %s: %s", dfile, err)
+		l.Fatalf("Error reading user file %s: %s", dfile, err)
 	}
+	return b
+}
+
+func (l *logintest) ReadUsers() {
+	b := l.ReadFile("users.json")
 	json.Unmarshal(b, &l.users)
+	l.name2user = make(map[string]*user, len(l.users))
+	for i, r := range l.users {
+		l.name2user[r.Login] = &l.users[i]
+	}
 }
 
 func (l *logintest) ReadLogins() {
@@ -213,8 +251,21 @@ func (l *logintest) ReadLogins() {
 		log.Fatalf("Error reading user file %s: %s", l.loginfile, err)
 	}
 	json.Unmarshal(b, &l.logins)
+	l.cookie2user = make(map[string]*user, len(l.logins))
+	l.user2logins = make(map[string][]*login, len(l.users))
+	for i, r := range l.logins {
+		login := r.Login
+		user := l.name2user[login]
+		if user == nil {
+			l.errorPage("Can't find user with name '%s'", login)
+			continue
+		}
+		l.cookie2user[r.Cookie] = user
+		l.user2logins[login] = append(l.user2logins[login], &l.logins[i])
+	}
 }
 
+// Set up "l" to serve web pages.
 func (l *logintest) setup() {
 	self := os.Args[0]
 	var err error
@@ -229,16 +280,33 @@ func (l *logintest) setup() {
 		log.Fatalf("Error reading templates: %s", err)
 	}
 	l.ReadUsers()
-	l.loginfile = l.dir + "/" + "logins.json"
+	l.loginfile = filepath.Join(l.dir, "logins.json")
 	l.ReadLogins()
 }
 
+func (l *logintest) message(format string, a ...interface{}) {
+	if !l.verbose {
+		return
+	}
+	_, file, line, _ := runtime.Caller(1)
+	_, file = filepath.Split(file)
+	fmt.Printf("%s:%d: ", file, line)
+	fmt.Printf(format, a...)
+	fmt.Printf("\n")
+}
+
 func main() {
-	var l logintest
+	l := logintest{
+		verbose: true,
+	}
 	l.setup()
 	http.HandleFunc("/", MakeHandler(&l, handler))
-	err := http.ListenAndServe(":9191", nil)
+	serve := ":" + l.config["port"]
+	l.message("Serving on %s", serve)
+	l.serving = true
+	err := http.ListenAndServe(serve, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error from server: %s", err)
 	}
+	l.serving = false
 }

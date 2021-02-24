@@ -13,5 +13,9 @@ my @users = (
 	login => 'tony',
 	pass => 'abcde',
     },
+    {
+	login => 'mariko',
+	pass => 'nyan',
+    },
 );
 write_json ("$Bin/users.json", \@users);
