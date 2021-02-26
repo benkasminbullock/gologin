@@ -253,27 +253,28 @@ func (l *logintest) ReadLogins() {
 // |_|   \__,_|\__, |\___||___/
 //             |___/
 
-func (l *logintest) HandleLogin(name string, cookie *http.Cookie) bool {
+func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (L login, ok bool) {
 	user, ok := l.name2user[name]
 	if !ok {
 		l.errorPage("Unknown user '%s'", name)
-		return false
+		return L, false
 	}
 	if cookie != nil {
 		l.DeleteOldCookie(cookie)
 	}
-	l.L.Login = name
+	L.Login = name
 	pass := l.r.FormValue("password")
 	if pass != user.Pass {
 		l.errorPage("Wrong password '%s' should be '%s'",
 			pass, user.Pass)
-		return false
+		return L, false
 	}
-	l.L.Pass = pass
-	l.L.Cookie = randSeq(5)
-	l.storeLogin(l.L)
-	l.SetCookie(l.L.Cookie)
-	return true
+	L.Pass = pass
+	L.Cookie = randSeq(5)
+	l.storeLogin(L)
+	l.SetCookie(L.Cookie)
+	l.cookie2user[L.Cookie] = user
+	return L, true
 }
 
 // https://medium.com/@int128/shutdown-http-server-by-endpoint-in-go-2a0e2d7f9b8c
@@ -312,26 +313,22 @@ func (l *logintest) DoTemplate(template string, thing interface{}) {
 // Handle showing something
 func (l *logintest) HandleShow(show string) {
 	if show == "logins" {
-		fmt.Fprintf(l.w, "<html><body><table>\n")
-		for i, r := range l.logins {
-			fmt.Fprintf(l.w, "<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>",
-				i, r.Login, r.Pass, r.Cookie)
-		}
-		fmt.Fprintf(l.w, "</table></body></html>\n")
+		l.DoTemplate("show-logins.html", l.logins)
 	} else if show == "users" {
 		l.DoTemplate("show-users.html", l.users)
 	}
 }
 
-func (l *logintest) LookUpCookie(cookie string) {
+func (l *logintest) LookUpCookie(cookie string) (L login, ok bool) {
 	user, ok := l.cookie2user[cookie]
 	if !ok {
 		l.message("Cookie %s not found", cookie)
-		return
+		return L, false
 	}
-	l.L.Login = user.Login
-	l.L.Pass = user.Pass
-	l.L.Cookie = cookie
+	L.Login = user.Login
+	L.Pass = user.Pass
+	L.Cookie = cookie
+	return L, true
 }
 
 func (l *logintest) HandleAction(action string) {
@@ -345,6 +342,7 @@ func (l *logintest) HandleAction(action string) {
 			l.errorPage("Error from r.Cookie: %s", err)
 		}
 		l.DeleteOldCookie(cookie)
+		l.clearCookie()
 		l.errorPage("You are now logged out")
 		return
 	}
@@ -358,21 +356,11 @@ func handler(l *logintest) {
 		l.HandleControl(control)
 		return
 	}
-	l.L = login{}
-	defer func() {
-		// Blank out the login values.
-		l.L = login{}
-	}()
+	L := login{}
 	cookie, err := l.r.Cookie(cookieName)
 	if err != nil {
 		if err != http.ErrNoCookie {
 			l.errorPage("Error from cookie: %s", err)
-		}
-	}
-	name := l.r.FormValue("user-name")
-	if len(name) > 0 {
-		if !l.HandleLogin(name, cookie) {
-			return
 		}
 	}
 	show := l.r.FormValue("show")
@@ -385,11 +373,22 @@ func handler(l *logintest) {
 		l.HandleAction(action)
 		return
 	}
-	if len(cookie.Value) > 0 {
-		l.LookUpCookie(cookie.Value)
-	}
 	logtmp := l.templates.Lookup("login.html")
-	err = logtmp.Execute(l.w, l)
+	cookieOk := false
+	if cookie != nil && len(cookie.Value) > 0 {
+		L, cookieOk = l.LookUpCookie(cookie.Value)
+	}
+	if !cookieOk {
+		loginOk := false
+		name := l.r.FormValue("user-name")
+		if len(name) > 0 {
+			L, loginOk = l.HandleLogin(name, cookie)
+			if !loginOk {
+				return
+			}
+		}
+	}
+	err = logtmp.Execute(l.w, L)
 	if err != nil {
 		l.errorPage("Error executing template: %s", err)
 		return

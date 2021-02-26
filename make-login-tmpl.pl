@@ -9,6 +9,7 @@ use File::Slurper 'write_text';
 make_login ();
 make_error ();
 make_show_users ();
+make_show_logins ();
 
 exit;
 
@@ -27,6 +28,23 @@ sub make_show_users
 {{end}}
 EOF
     write_text ("$Bin/tmpl/show-users.html", $html->text ());
+}
+
+sub make_show_logins
+{
+    my ($html, $body) = make_page (
+	title => "Users",
+    );
+    $body->push (make_nav ());
+    $body->push ('h1', text => 'Users');
+    my $table = $body->push ('table', class => 'show');
+    $table->add_text (<<EOF);
+<tr><th>Cookie</th><th>User</th><th>Password</th></tr>
+{{range .}}
+<tr><td>{{.Cookie}}</td><td>{{.Login}}</td><td>{{.Pass}}</td></tr>
+{{end}}
+EOF
+    write_text ("$Bin/tmpl/show-logins.html", $html->text ());
 }
 
 
@@ -50,27 +68,28 @@ sub make_login
     );
     $body->push (make_nav ());
     $body->push ('h1', text => $title);
-    $body->add_text ("{{if .L}}\n");
+    $body->add_text ("{{if .Login}}\n");
     my $table = $body->push ('table');
     my $crow = $table->push ('tr');
     $crow->push ('th', text => 'Your current cookie:');
-    $crow->push ('td', text => '{{.L.Cookie}}');
+    $crow->push ('td', text => '{{.Cookie}}');
     my $lrow = $table->push ('tr');
     $lrow->push ('th', text => 'Your login:');
-    $lrow->push ('td', text => '{{.L.Login}}');
+    $lrow->push ('td', text => '{{.Login}}');
     my $prow = $table->push ('tr');
     $prow->push ('th', text => 'Your password:');
-    $prow->push ('td', text => '{{.L.Pass}}');
-    $body->add_text ("{{end}}\n");
+    $prow->push ('td', text => '{{.Pass}}');
+    $body->add_text ("{{else}}\n");
     my $form = <<EOF;
 <h3>Log in</h3>
 <form id='login-form' method='POST'>
-<b>Name:</b><input name='user-name' value="{{.L.Login}}">
+<b>Name:</b><input name='user-name'>
 <br>
-<b>Password:</b><input name='password' value="{{.L.Pass}}">
+<b>Password:</b><input name='password'>
 <br>
 <input type='submit'>
 </form>
+{{end}}
 EOF
     $body->add_text ($form);
     write_text ("$Bin/tmpl/login.html", $html->text ());
