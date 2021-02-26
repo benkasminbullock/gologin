@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta content="width=device-width, initial-scale=1.0" name="viewport">
-<title>{{.Error}}</title>
+<title>Users</title>
 </head>
 <body>
 <div>
@@ -18,7 +18,13 @@ Show logins</a>
 <a href="?control=stop">
 🛑 Stop server</a>
 </div>
-<div class="error">
-{{.Error}}</div>
+<h1>
+Users</h1>
+<table class="show">
+<tr><th>User</th><th>Password</th></tr>
+{{range .}}
+<tr><td>{{.Login}}</td><td>{{.Pass}}</td></tr>
+{{end}}
+</table>
 </body>
 </html>

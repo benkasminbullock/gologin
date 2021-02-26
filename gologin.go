@@ -104,6 +104,7 @@ func (l *logintest) Fatalf(format string, a ...interface{}) {
 
 // Write the logins from l.logins into the login file.
 func (l *logintest) WriteLogins() {
+	l.message("Writing logins file")
 	bytes, err := json.MarshalIndent(l.logins, "", "\t")
 	if err != nil {
 		l.errorPage("Error marshalling JSON: %s", err)
@@ -252,7 +253,7 @@ func (l *logintest) ReadLogins() {
 // |_|   \__,_|\__, |\___||___/
 //             |___/
 
-func (l *logintest) HandleLogin(ctx context.Context, name string, cookie *http.Cookie) bool {
+func (l *logintest) HandleLogin(name string, cookie *http.Cookie) bool {
 	user, ok := l.name2user[name]
 	if !ok {
 		l.errorPage("Unknown user '%s'", name)
@@ -275,37 +276,86 @@ func (l *logintest) HandleLogin(ctx context.Context, name string, cookie *http.C
 	return true
 }
 
-func (l *logintest) HandleControl(ctx context.Context, control string) {
+// https://medium.com/@int128/shutdown-http-server-by-endpoint-in-go-2a0e2d7f9b8c
+func (l *logintest) StopServing() {
+	l.message("Stopping server")
+	ctx, cancel := context.WithCancel(l.r.Context())
+	defer cancel()
+	l.errorPage("Stopping server")
+	go func() {
+		if err := l.server.Shutdown(ctx); err != nil {
+			log.Fatal(err)
+		}
+	}()
+	l.message("Server has stopped")
+	l.serving = false
+}
+
+func (l *logintest) HandleControl(control string) {
 	l.message("Received control message '%s'", control)
 	if control == "stop" {
-		l.message("Stopping server")
-		l.server.Shutdown(ctx)
-		l.serving = false
+		l.StopServing()
 	}
 }
 
-func (l *logintest) HandleShow(ctx context.Context, show string) {
-	fmt.Fprintf(l.w, "<html><body><table>")
+func (l *logintest) DoTemplate(template string, thing interface{}) {
+	tmpl := l.templates.Lookup(template)
+	if tmpl == nil {
+		panic(fmt.Sprintf("No such template %s", template))
+	}
+	err := tmpl.Execute(l.w, thing)
+	if err != nil {
+		panic(fmt.Sprintf("Error from tmpl.Execute: %s", err))
+	}
+}
+
+// Handle showing something
+func (l *logintest) HandleShow(show string) {
 	if show == "logins" {
+		fmt.Fprintf(l.w, "<html><body><table>\n")
 		for i, r := range l.logins {
 			fmt.Fprintf(l.w, "<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>",
 				i, r.Login, r.Pass, r.Cookie)
 		}
+		fmt.Fprintf(l.w, "</table></body></html>\n")
 	} else if show == "users" {
-		for i, r := range l.users {
-			fmt.Fprintf(l.w, "<tr><td>%d</td><td>%s</td><td>%s</td></tr>",
-				i, r.Login, r.Pass)
-		}
-
+		l.DoTemplate("show-users.html", l.users)
 	}
-
-	fmt.Fprintf(l.w, "</table></body></html>")
 }
 
-func handler(ctx context.Context, l *logintest) {
+func (l *logintest) LookUpCookie(cookie string) {
+	user, ok := l.cookie2user[cookie]
+	if !ok {
+		l.message("Cookie %s not found", cookie)
+		return
+	}
+	l.L.Login = user.Login
+	l.L.Pass = user.Pass
+	l.L.Cookie = cookie
+}
+
+func (l *logintest) HandleAction(action string) {
+	if action == "logout" {
+		cookie, err := l.r.Cookie(cookieName)
+		if err != nil {
+			if err == http.ErrNoCookie {
+				l.errorPage("You were not logged in")
+				return
+			}
+			l.errorPage("Error from r.Cookie: %s", err)
+		}
+		l.DeleteOldCookie(cookie)
+		l.errorPage("You are now logged out")
+		return
+	}
+	l.errorPage("Unknown action '%s'", action)
+}
+
+// Handle web requests
+func handler(l *logintest) {
 	control := l.r.FormValue("control")
 	if len(control) > 0 {
-		l.HandleControl(ctx, control)
+		l.HandleControl(control)
 		return
 	}
 	l.L = login{}
@@ -321,14 +371,22 @@ func handler(ctx context.Context, l *logintest) {
 	}
 	name := l.r.FormValue("user-name")
 	if len(name) > 0 {
-		if !l.HandleLogin(ctx, name, cookie) {
+		if !l.HandleLogin(name, cookie) {
 			return
 		}
 	}
 	show := l.r.FormValue("show")
 	if len(show) > 0 {
-		l.HandleShow(ctx, show)
+		l.HandleShow(show)
 		return
+	}
+	action := l.r.FormValue("action")
+	if len(action) > 0 {
+		l.HandleAction(action)
+		return
+	}
+	if len(cookie.Value) > 0 {
+		l.LookUpCookie(cookie.Value)
 	}
 	logtmp := l.templates.Lookup("login.html")
 	err = logtmp.Execute(l.w, l)
@@ -338,12 +396,11 @@ func handler(ctx context.Context, l *logintest) {
 	}
 }
 
-func MakeHandler(l *logintest, f func(context.Context, *logintest)) http.HandlerFunc {
+func MakeHandler(l *logintest, f func(*logintest)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		l.w = w
 		l.r = r
-		ctx := r.Context()
-		f(ctx, l)
+		f(l)
 	}
 }
 
