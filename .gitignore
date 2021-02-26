@@ -1,4 +1,4 @@
 logins.json
 users.json
-tmpl/login.html
+tmpl/*.html
 gologin
