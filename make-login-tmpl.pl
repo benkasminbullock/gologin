@@ -37,7 +37,21 @@ my $form = <<EOF;
 EOF
 $body->add_text ($form);
 write_text ("$Bin/tmpl/login.html", $html->text ());
+
+make_error ();
+
 exit;
+
+sub make_error
+{
+    my $error = "{{.Error}}";
+    my ($html, $body) = make_page (
+	title => $error,
+    );
+    $body->push (make_nav ());
+    $body->push ('div', class => 'error', text => $error);
+    write_text ("$Bin/tmpl/error.html", $html->text ());
+}
 
 sub make_nav
 {

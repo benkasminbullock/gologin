@@ -78,9 +78,13 @@ func (l *logintest) errorPage(format string, a ...interface{}) {
 	if !l.serving {
 		return
 	}
-	fmt.Fprintf(l.w, "<div class='error'>\n")
-	fmt.Fprintf(l.w, format, a...)
-	fmt.Fprintf(l.w, "</div>\n")
+	e := struct {
+		Error string
+	}{
+		Error: fmt.Sprintf(format, a...),
+	}
+	errortmpl := l.templates.Lookup("error.html")
+	errortmpl.Execute(l.w, e)
 }
 
 /* Send an error message to the browser and quit. */
@@ -248,7 +252,7 @@ func (l *logintest) ReadLogins() {
 // |_|   \__,_|\__, |\___||___/
 //             |___/
 
-func (l *logintest) HandleLogin(name string, cookie *http.Cookie) bool {
+func (l *logintest) HandleLogin(ctx context.Context, name string, cookie *http.Cookie) bool {
 	user, ok := l.name2user[name]
 	if !ok {
 		l.errorPage("Unknown user '%s'", name)
@@ -271,23 +275,37 @@ func (l *logintest) HandleLogin(name string, cookie *http.Cookie) bool {
 	return true
 }
 
-func (l *logintest) HandleControl(control string) {
+func (l *logintest) HandleControl(ctx context.Context, control string) {
 	l.message("Received control message '%s'", control)
 	if control == "stop" {
 		l.message("Stopping server")
-		l.server.Shutdown(context.TODO())
+		l.server.Shutdown(ctx)
 		l.serving = false
 	}
 }
 
-func (l *logintest) HandleShow(show string) {
+func (l *logintest) HandleShow(ctx context.Context, show string) {
+	fmt.Fprintf(l.w, "<html><body><table>")
+	if show == "logins" {
+		for i, r := range l.logins {
+			fmt.Fprintf(l.w, "<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+				i, r.Login, r.Pass, r.Cookie)
+		}
+	} else if show == "users" {
+		for i, r := range l.users {
+			fmt.Fprintf(l.w, "<tr><td>%d</td><td>%s</td><td>%s</td></tr>",
+				i, r.Login, r.Pass)
+		}
 
+	}
+
+	fmt.Fprintf(l.w, "</table></body></html>")
 }
 
-func handler(l *logintest) {
+func handler(ctx context.Context, l *logintest) {
 	control := l.r.FormValue("control")
 	if len(control) > 0 {
-		l.HandleControl(control)
+		l.HandleControl(ctx, control)
 		return
 	}
 	l.L = login{}
@@ -303,26 +321,29 @@ func handler(l *logintest) {
 	}
 	name := l.r.FormValue("user-name")
 	if len(name) > 0 {
-		if !l.HandleLogin(name, cookie) {
+		if !l.HandleLogin(ctx, name, cookie) {
 			return
 		}
 	}
 	show := l.r.FormValue("show")
 	if len(show) > 0 {
-		l.HandleShow(show)
+		l.HandleShow(ctx, show)
+		return
 	}
-	err = l.templates.Execute(l.w, l)
+	logtmp := l.templates.Lookup("login.html")
+	err = logtmp.Execute(l.w, l)
 	if err != nil {
 		l.errorPage("Error executing template: %s", err)
 		return
 	}
 }
 
-func MakeHandler(l *logintest, f func(*logintest)) http.HandlerFunc {
+func MakeHandler(l *logintest, f func(context.Context, *logintest)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		l.w = w
 		l.r = r
-		f(l)
+		ctx := r.Context()
+		f(ctx, l)
 	}
 }
 
@@ -346,7 +367,7 @@ func (l *logintest) setup() {
 			self, err)
 	}
 	l.readConfigJSON("config.txt")
-	l.templates, err = template.ParseFiles(l.dir + "/tmpl/login.html")
+	l.templates, err = template.ParseGlob(l.dir + "/tmpl/*.html")
 	if err != nil {
 		log.Fatalf("Error reading templates: %s", err)
 	}
