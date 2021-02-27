@@ -14,13 +14,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
 type login struct {
-	Login  string `json:"login"`
-	Pass   string `json:"pass"`
-	Cookie string `json:"cookie"`
+	Login  string    `json:"login"`
+	Pass   string    `json:"pass"`
+	Cookie string    `json:"cookie"`
+	Last   time.Time `json:"last"`
 }
 
 type user struct {
@@ -84,7 +86,10 @@ func (l *logintest) errorPage(format string, a ...interface{}) {
 		Error: fmt.Sprintf(format, a...),
 	}
 	errortmpl := l.templates.Lookup("error.html")
-	errortmpl.Execute(l.w, e)
+	err := errortmpl.Execute(l.w, e)
+	if err != nil {
+		log.Printf("Error executing error template: %s", err)
+	}
 }
 
 /* Send an error message to the browser and quit. */
@@ -125,6 +130,8 @@ func (l *logintest) appendLogin() {
 // Store "li" to the login file.
 func (l *logintest) storeLogin(li login) {
 	l.logins = append(l.logins, li)
+	last := &l.logins[len(l.logins)-1]
+	l.AddUserLogin(li.Login, last)
 	if _, err := os.Stat(l.loginfile); os.IsNotExist(err) {
 		l.WriteLogins()
 		return
@@ -220,6 +227,13 @@ func (l *logintest) ReadUsers() {
 	}
 }
 
+// Add a login to the user's list of logins.
+func (l *logintest) AddUserLogin(username string, lo *login) {
+	uls := l.user2logins[username]
+	uls = append(uls, lo)
+	l.user2logins[username] = uls
+}
+
 // This works even if l.logins is empty.
 func (l *logintest) initlogins() {
 	l.cookie2user = make(map[string]*user, len(l.logins))
@@ -232,7 +246,7 @@ func (l *logintest) initlogins() {
 			continue
 		}
 		l.cookie2user[r.Cookie] = user
-		l.user2logins[login] = append(l.user2logins[login], &l.logins[i])
+		l.AddUserLogin(user.Login, &l.logins[i])
 	}
 }
 
@@ -241,7 +255,7 @@ func (l *logintest) ReadLogins() {
 	b, err := ioutil.ReadFile(l.loginfile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("There is no logins file '%s'", l.loginfile)
+			l.message("There is no logins file '%s'", l.loginfile)
 			// Allow empty user file
 			l.initlogins()
 			return
@@ -266,6 +280,7 @@ func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (L login, ok b
 		return L, false
 	}
 	if cookie != nil {
+		l.message("Deleting old cookie %s", cookie.Value)
 		l.DeleteOldCookie(cookie)
 	}
 	L.Login = name
@@ -277,6 +292,9 @@ func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (L login, ok b
 	}
 	L.Pass = pass
 	L.Cookie = randSeq(5)
+	L.Last = time.Now()
+	l.message("Password %s correct for %s, setting cookie to %s",
+		pass, name, L.Cookie)
 	l.storeLogin(L)
 	l.SetCookie(L.Cookie)
 	l.cookie2user[L.Cookie] = user
@@ -328,12 +346,28 @@ func (l *logintest) HandleShow(show string) {
 func (l *logintest) LookUpCookie(cookie string) (L login, ok bool) {
 	user, ok := l.cookie2user[cookie]
 	if !ok {
-		l.message("Cookie %s not found", cookie)
+		l.message("Cookie %s not found, clearing", cookie)
+		l.clearCookie()
 		return L, false
 	}
 	L.Login = user.Login
 	L.Pass = user.Pass
 	L.Cookie = cookie
+	logins := l.user2logins[user.Login]
+	found := false
+	for _, r := range logins {
+		l.message("Looking at cookie %s for user %s", r.Cookie, user.Login)
+		if r.Cookie == cookie {
+			L.Last = r.Last
+			found = true
+			l.message("Found the cookie")
+			break
+		}
+	}
+	if !found {
+		l.message("The cookie %s was not found in the list of logins",
+			cookie)
+	}
 	return L, true
 }
 
@@ -365,6 +399,11 @@ func (l *logintest) HandleAction(action string) {
 
 // Handle web requests
 func handler(l *logintest) {
+	url := l.r.URL
+	if strings.Contains(url.Path, "favicon.ico") {
+		l.w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	control := l.r.FormValue("control")
 	if len(control) > 0 {
 		l.HandleControl(control)
@@ -396,6 +435,7 @@ func handler(l *logintest) {
 		loginOk := false
 		name := l.r.FormValue("user-name")
 		if len(name) > 0 {
+			l.message("Looking for user name %s", name)
 			L, loginOk = l.HandleLogin(name, cookie)
 			if !loginOk {
 				return
@@ -447,6 +487,7 @@ func (l *logintest) setup() {
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	l := logintest{
 		verbose: true,
 	}

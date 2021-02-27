@@ -39,9 +39,19 @@ sub make_show_logins
     $body->push ('h1', text => 'Users');
     my $table = $body->push ('table', class => 'show');
     $table->add_text (<<EOF);
-<tr><th>Cookie</th><th>User</th><th>Password</th></tr>
+<tr>
+<th>Cookie</th>
+<th>User</th>
+<th>Password</th>
+<th>Last login</th>
+</tr>
 {{range .}}
-<tr><td>{{.Cookie}}</td><td>{{.Login}}</td><td>{{.Pass}}</td></tr>
+<tr>
+<td>{{.Cookie}}</td>
+<td>{{.Login}}</td>
+<td>{{.Pass}}</td>
+<td>{{.Last}}</td>
+</tr>
 {{end}}
 EOF
     write_text ("$Bin/tmpl/show-logins.html", $html->text ());
@@ -79,6 +89,9 @@ sub make_login
     my $prow = $table->push ('tr');
     $prow->push ('th', text => 'Your password:');
     $prow->push ('td', text => '{{.Pass}}');
+    my $trow = $table->push ('tr');
+    $trow->push ('th', text => 'Login time:');
+    $trow->push ('td', text => '{{.Last}}');
     $body->add_text ("{{else}}\n");
     my $form = <<EOF;
 <h3>Log in</h3>
