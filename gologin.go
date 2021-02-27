@@ -220,20 +220,10 @@ func (l *logintest) ReadUsers() {
 	}
 }
 
-// Read the file of logins (user+cookie) from the local directory
-func (l *logintest) ReadLogins() {
-	b, err := ioutil.ReadFile(l.loginfile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("There is no logins file '%s'", l.loginfile)
-			// Allow empty user file
-			return
-		}
-		log.Fatalf("Error reading user file %s: %s", l.loginfile, err)
-	}
-	json.Unmarshal(b, &l.logins)
+// This works even if l.logins is empty.
+func (l *logintest) initlogins() {
 	l.cookie2user = make(map[string]*user, len(l.logins))
-	l.user2logins = make(map[string][]*login, len(l.users))
+	l.user2logins = make(map[string][]*login, len(l.logins))
 	for i, r := range l.logins {
 		login := r.Login
 		user := l.name2user[login]
@@ -244,6 +234,22 @@ func (l *logintest) ReadLogins() {
 		l.cookie2user[r.Cookie] = user
 		l.user2logins[login] = append(l.user2logins[login], &l.logins[i])
 	}
+}
+
+// Read the file of logins (user+cookie) from the local directory
+func (l *logintest) ReadLogins() {
+	b, err := ioutil.ReadFile(l.loginfile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("There is no logins file '%s'", l.loginfile)
+			// Allow empty user file
+			l.initlogins()
+			return
+		}
+		log.Fatalf("Error reading user file %s: %s", l.loginfile, err)
+	}
+	json.Unmarshal(b, &l.logins)
+	l.initlogins()
 }
 
 //  ____
@@ -344,6 +350,14 @@ func (l *logintest) HandleAction(action string) {
 		l.DeleteOldCookie(cookie)
 		l.clearCookie()
 		l.errorPage("You are now logged out")
+		return
+	}
+	if action == "delete-all" {
+		l.message("Deleting all logins")
+		os.Remove(l.loginfile)
+		l.logins = nil
+		l.initlogins()
+		l.errorPage("All current logins have been deleted")
 		return
 	}
 	l.errorPage("Unknown action '%s'", action)

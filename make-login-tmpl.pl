@@ -100,6 +100,8 @@ sub make_nav
     my $nav = HTML::Make->new ('div');
     $nav->push ('a', href => '/', text => 'Top page');
     $nav->push ('a', href => '?action=logout', text => 'Log out');
+    $nav->push ('a', href => '?action=delete-all',
+		text => '❌ Delete all logins');
     $nav->push ('a', href => '?show=users', text => 'Show users');
     $nav->push ('a', href => '?show=logins', text => 'Show logins');
     $nav->push ('a', href => '?control=stop', text => '🛑 Stop server');
