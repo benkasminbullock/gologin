@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gologin/store"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -17,6 +18,14 @@ import (
 	"strings"
 	"time"
 )
+
+type LoginStore interface {
+	//	CheckPassword(user string, password string) (found bool)
+	//	FindUser(user string) (found bool)
+	CookieToLogin(cookie string) (found bool, user string, err error)
+	Init(dir string) (err error)
+	StoreLogin(user string, cookie string) (err error)
+}
 
 type login struct {
 	Login  string    `json:"login"`
@@ -54,6 +63,7 @@ type logintest struct {
 	serving bool
 
 	server *http.Server
+	store  LoginStore
 }
 
 //  __  __
@@ -137,6 +147,7 @@ func (l *logintest) storeLogin(li login) {
 		return
 	}
 	l.appendLogin()
+	l.store.StoreLogin(li.Login, li.Cookie)
 }
 
 //   ____            _    _
@@ -492,6 +503,8 @@ func main() {
 		verbose: true,
 	}
 	l.setup()
+	l.store = &store.Store{}
+	l.store.Init(l.dir)
 	serve := ":" + l.config["port"]
 	l.server = &http.Server{Addr: serve}
 	http.HandleFunc("/", MakeHandler(&l, handler))
