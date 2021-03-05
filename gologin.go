@@ -20,23 +20,17 @@ import (
 )
 
 type LoginStore interface {
-	//	CheckPassword(user string, password string) (found bool)
-	//	FindUser(user string) (found bool)
-	CookieToLogin(cookie string) (found bool, user string, err error)
+	CheckPassword(user string, password string) (found bool)
+	FindUser(user string) (found bool)
+	LookUpCookie(cookie string) (user string, found bool, err error)
+	DeleteCookie(cookie string) (err error)
 	Init(dir string) (err error)
 	StoreLogin(user string, cookie string) (err error)
-}
-
-type login struct {
-	Login  string    `json:"login"`
-	Pass   string    `json:"pass"`
-	Cookie string    `json:"cookie"`
-	Last   time.Time `json:"last"`
-}
-
-type user struct {
-	Login string `json:"login"`
-	Pass  string `json:"pass"`
+	DeleteAllLogins() (err error)
+	// These methods are for display
+	Login(name string, cookie string) (user interface{})
+	Users() (users interface{})
+	Logins() (logins interface{})
 }
 
 type logintest struct {
@@ -45,18 +39,6 @@ type logintest struct {
 	templates *template.Template
 	dir       string
 	config    map[string]string
-	L         login
-	// The file containing the logins.
-	loginfile string
-	// List of all users.
-	users []user
-	// List of all logins.
-	logins []login
-	// Given a cookie, look up its user and log them in.
-	cookie2user map[string]*user
-	// Given a user, look up their logins.
-	user2logins map[string][]*login
-	name2user   map[string]*user
 	// True to print messages.
 	verbose bool
 	// True if we are serving.
@@ -117,37 +99,12 @@ func (l *logintest) Fatalf(format string, a ...interface{}) {
 // |____/ \__\___/|_|  \__,_|\__, |\___|
 //                           |___/
 
-// Write the logins from l.logins into the login file.
-func (l *logintest) WriteLogins() {
-	l.message("Writing logins file")
-	bytes, err := json.MarshalIndent(l.logins, "", "\t")
-	if err != nil {
-		l.errorPage("Error marshalling JSON: %s", err)
-		return
-	}
-	err = ioutil.WriteFile(l.loginfile, bytes, 0666)
-	if err != nil {
-		l.errorPage("Error writing %s: %s", l.loginfile, err)
-		return
-	}
-}
-
-// Append a login to the login file.
-func (l *logintest) appendLogin() {
-	l.WriteLogins()
-}
-
 // Store "li" to the login file.
-func (l *logintest) storeLogin(li login) {
-	l.logins = append(l.logins, li)
-	last := &l.logins[len(l.logins)-1]
-	l.AddUserLogin(li.Login, last)
-	if _, err := os.Stat(l.loginfile); os.IsNotExist(err) {
-		l.WriteLogins()
-		return
+func (l *logintest) storeLogin(user string, cookie string) {
+	err := l.store.StoreLogin(user, cookie)
+	if err != nil {
+		l.errorPage("Error storing cookie for %s: %s", user, err)
 	}
-	l.appendLogin()
-	l.store.StoreLogin(li.Login, li.Cookie)
 }
 
 //   ____            _    _
@@ -191,28 +148,6 @@ func (l *logintest) clearCookie() {
 	http.SetCookie(l.w, &cookie)
 }
 
-func (l *logintest) DeleteOldCookie(cookie *http.Cookie) {
-	v := cookie.Value
-	l.message("Looking for a cookie with value '%s'", v)
-	l.ReadLogins()
-	found := false
-	offset := -1
-	for i := range l.logins {
-		if l.logins[i].Cookie == v {
-			found = true
-			offset = i
-			break
-		}
-	}
-	if !found {
-		l.message("Did not find the cookie")
-		return
-	}
-	l.message("Found cookie %s", v)
-	l.logins = append(l.logins[0:offset], l.logins[offset+1:]...)
-	l.WriteLogins()
-}
-
 // Read a file from the local directory
 func (l *logintest) ReadFile(file string) (b []byte) {
 	dfile := filepath.Join(l.dir, file)
@@ -228,55 +163,6 @@ func (l *logintest) ReadFile(file string) (b []byte) {
 	return b
 }
 
-// Read the file of users from the local directory
-func (l *logintest) ReadUsers() {
-	b := l.ReadFile("users.json")
-	json.Unmarshal(b, &l.users)
-	l.name2user = make(map[string]*user, len(l.users))
-	for i, r := range l.users {
-		l.name2user[r.Login] = &l.users[i]
-	}
-}
-
-// Add a login to the user's list of logins.
-func (l *logintest) AddUserLogin(username string, lo *login) {
-	uls := l.user2logins[username]
-	uls = append(uls, lo)
-	l.user2logins[username] = uls
-}
-
-// This works even if l.logins is empty.
-func (l *logintest) initlogins() {
-	l.cookie2user = make(map[string]*user, len(l.logins))
-	l.user2logins = make(map[string][]*login, len(l.logins))
-	for i, r := range l.logins {
-		login := r.Login
-		user := l.name2user[login]
-		if user == nil {
-			l.errorPage("Can't find user with name '%s'", login)
-			continue
-		}
-		l.cookie2user[r.Cookie] = user
-		l.AddUserLogin(user.Login, &l.logins[i])
-	}
-}
-
-// Read the file of logins (user+cookie) from the local directory
-func (l *logintest) ReadLogins() {
-	b, err := ioutil.ReadFile(l.loginfile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			l.message("There is no logins file '%s'", l.loginfile)
-			// Allow empty user file
-			l.initlogins()
-			return
-		}
-		log.Fatalf("Error reading user file %s: %s", l.loginfile, err)
-	}
-	json.Unmarshal(b, &l.logins)
-	l.initlogins()
-}
-
 //  ____
 // |  _ \ __ _  __ _  ___  ___
 // | |_) / _` |/ _` |/ _ \/ __|
@@ -284,32 +170,27 @@ func (l *logintest) ReadLogins() {
 // |_|   \__,_|\__, |\___||___/
 //             |___/
 
-func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (L login, ok bool) {
-	user, ok := l.name2user[name]
+func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (newcookie string, ok bool) {
+	ok = l.store.FindUser(name)
 	if !ok {
 		l.errorPage("Unknown user '%s'", name)
-		return L, false
+		return "", false
 	}
 	if cookie != nil {
 		l.message("Deleting old cookie %s", cookie.Value)
-		l.DeleteOldCookie(cookie)
+		l.store.DeleteCookie(cookie.Value)
 	}
-	L.Login = name
 	pass := l.r.FormValue("password")
-	if pass != user.Pass {
-		l.errorPage("Wrong password '%s' should be '%s'",
-			pass, user.Pass)
-		return L, false
+	if !l.store.CheckPassword(name, pass) {
+		l.errorPage("Wrong password '%s' for %s", pass, name)
+		return "", false
 	}
-	L.Pass = pass
-	L.Cookie = randSeq(5)
-	L.Last = time.Now()
+	newcookie = randSeq(5)
 	l.message("Password %s correct for %s, setting cookie to %s",
-		pass, name, L.Cookie)
-	l.storeLogin(L)
-	l.SetCookie(L.Cookie)
-	l.cookie2user[L.Cookie] = user
-	return L, true
+		pass, name, newcookie)
+	l.SetCookie(newcookie)
+	l.storeLogin(name, newcookie)
+	return newcookie, true
 }
 
 // https://medium.com/@int128/shutdown-http-server-by-endpoint-in-go-2a0e2d7f9b8c
@@ -348,38 +229,19 @@ func (l *logintest) DoTemplate(template string, thing interface{}) {
 // Handle showing something
 func (l *logintest) HandleShow(show string) {
 	if show == "logins" {
-		l.DoTemplate("show-logins.html", l.logins)
+		l.DoTemplate("show-logins.html", l.store.Logins())
 	} else if show == "users" {
-		l.DoTemplate("show-users.html", l.users)
+		l.DoTemplate("show-users.html", l.store.Users())
 	}
 }
 
-func (l *logintest) LookUpCookie(cookie string) (L login, ok bool) {
-	user, ok := l.cookie2user[cookie]
-	if !ok {
-		l.message("Cookie %s not found, clearing", cookie)
-		l.clearCookie()
-		return L, false
+func (l *logintest) LookUpCookie(cookie string) (login string, ok bool) {
+	login, ok, err := l.store.LookUpCookie(cookie)
+	if err != nil {
+		l.errorPage("Error looking up cookie: %s", err)
+		return login, false
 	}
-	L.Login = user.Login
-	L.Pass = user.Pass
-	L.Cookie = cookie
-	logins := l.user2logins[user.Login]
-	found := false
-	for _, r := range logins {
-		l.message("Looking at cookie %s for user %s", r.Cookie, user.Login)
-		if r.Cookie == cookie {
-			L.Last = r.Last
-			found = true
-			l.message("Found the cookie")
-			break
-		}
-	}
-	if !found {
-		l.message("The cookie %s was not found in the list of logins",
-			cookie)
-	}
-	return L, true
+	return login, ok
 }
 
 func (l *logintest) HandleAction(action string) {
@@ -392,16 +254,14 @@ func (l *logintest) HandleAction(action string) {
 			}
 			l.errorPage("Error from r.Cookie: %s", err)
 		}
-		l.DeleteOldCookie(cookie)
+		l.store.DeleteCookie(cookie.Value)
 		l.clearCookie()
 		l.errorPage("You are now logged out")
 		return
 	}
 	if action == "delete-all" {
 		l.message("Deleting all logins")
-		os.Remove(l.loginfile)
-		l.logins = nil
-		l.initlogins()
+		l.store.DeleteAllLogins()
 		l.errorPage("All current logins have been deleted")
 		return
 	}
@@ -420,7 +280,6 @@ func handler(l *logintest) {
 		l.HandleControl(control)
 		return
 	}
-	L := login{}
 	cookie, err := l.r.Cookie(cookieName)
 	if err != nil {
 		if err != http.ErrNoCookie {
@@ -439,21 +298,35 @@ func handler(l *logintest) {
 	}
 	logtmp := l.templates.Lookup("login.html")
 	cookieOk := false
-	if cookie != nil && len(cookie.Value) > 0 {
-		L, cookieOk = l.LookUpCookie(cookie.Value)
+	if cookie != nil {
+		l.message("Cookie %s", cookie.Value)
+	}
+	var name string
+	var cookieval string
+	if cookie != nil {
+		cookieval = cookie.Value
+		if len(cookieval) > 0 {
+			name, cookieOk = l.LookUpCookie(cookieval)
+		}
 	}
 	if !cookieOk {
+		if cookie == nil {
+			l.message("No cookie was sent")
+		} else {
+			l.message("Cookie %s was not found", cookieval)
+			l.clearCookie()
+		}
 		loginOk := false
-		name := l.r.FormValue("user-name")
+		name = l.r.FormValue("user-name")
 		if len(name) > 0 {
 			l.message("Looking for user name %s", name)
-			L, loginOk = l.HandleLogin(name, cookie)
+			cookieval, loginOk = l.HandleLogin(name, cookie)
 			if !loginOk {
 				return
 			}
 		}
 	}
-	err = logtmp.Execute(l.w, L)
+	err = logtmp.Execute(l.w, l.store.Login(name, cookieval))
 	if err != nil {
 		l.errorPage("Error executing template: %s", err)
 		return
@@ -492,9 +365,6 @@ func (l *logintest) setup() {
 	if err != nil {
 		log.Fatalf("Error reading templates: %s", err)
 	}
-	l.ReadUsers()
-	l.loginfile = filepath.Join(l.dir, "logins.json")
-	l.ReadLogins()
 }
 
 func main() {

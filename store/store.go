@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	//	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
-	//	"strings"
 	"time"
 )
 
@@ -97,6 +95,7 @@ func (s *Store) AddUserLogin(username string, lo *login) {
 }
 
 func (s *Store) readLogins() (err error) {
+	s.message("The login file is '%s'", s.loginfile)
 	b, err := ioutil.ReadFile(s.loginfile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -116,11 +115,12 @@ func (s *Store) readLogins() (err error) {
 
 func (s *Store) Init(dir string) (err error) {
 	s.dir = dir
-	err = s.readLogins()
+	s.loginfile = filepath.Join(s.dir, "logins.json")
+	err = s.readUsers()
 	if err != nil {
 		return err
 	}
-	return s.readUsers()
+	return s.readLogins()
 }
 
 // Read the file of users from the local directory
@@ -136,19 +136,81 @@ func (s *Store) readUsers() (err error) {
 	}
 	return nil
 }
+
 func (s *Store) StoreLogin(user string, cookie string) (err error) {
 	li := login{
 		Login:  user,
 		Cookie: cookie,
 	}
 	s.logins = append(s.logins, li)
-	return nil
+	s.user2logins[user] = append(s.user2logins[user], &s.logins[len(s.logins)-1])
+	s.cookie2user[cookie] = s.name2user[user]
+	return s.writeLogins()
 }
 
-func (s *Store) CookieToLogin(cookie string) (found bool, user string, err error) {
+func (s *Store) LookUpCookie(cookie string) (user string, found bool, err error) {
 	u, found := s.cookie2user[cookie]
 	if !found {
-		return false, "", nil
+		return "", false, nil
 	}
-	return true, u.Login, nil
+	return u.Login, true, nil
+}
+
+func (s *Store) DeleteCookie(cookie string) (err error) {
+	s.message("Looking for a cookie with value '%s'", cookie)
+	s.readLogins()
+	found := false
+	offset := -1
+	for i := range s.logins {
+		if s.logins[i].Cookie == cookie {
+			found = true
+			offset = i
+			break
+		}
+	}
+	if !found {
+		s.message("Did not find the cookie")
+		return err
+	}
+	s.message("Found cookie %s", cookie)
+	s.logins = append(s.logins[0:offset], s.logins[offset+1:]...)
+	return s.writeLogins()
+}
+func (s *Store) CheckPassword(login string, password string) (found bool) {
+	user, ok := s.name2user[login]
+	if !ok {
+		return false
+	}
+	return password == user.Pass
+}
+
+func (s *Store) DeleteAllLogins() (err error) {
+	err = os.Remove(s.loginfile)
+	if err != nil {
+		return err
+	}
+	s.logins = nil
+	s.initlogins()
+	return nil
+}
+func (s *Store) FindUser(name string) (found bool) {
+	s.message("Looking for user %s", name)
+	_, found = s.name2user[name]
+	return found
+}
+
+func (s *Store) Users() (users interface{}) {
+	return s.users
+}
+func (s *Store) Login(name string, cookie string) (u interface{}) {
+	logins := s.user2logins[name]
+	for i, r := range logins {
+		if r.Cookie == cookie {
+			return &logins[i]
+		}
+	}
+	return &login{}
+}
+func (s *Store) Logins() (logins interface{}) {
+	return s.logins
 }
