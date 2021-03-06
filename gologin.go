@@ -152,7 +152,9 @@ func (l *logintest) HandleControl(control string) {
 	l.message("Received control message '%s'", control)
 	if control == "stop" {
 		l.StopServing()
+		return
 	}
+	l.errorPage("Unknown control message '%s'", control)
 }
 
 func (l *logintest) DoTemplate(template string, thing interface{}) {
