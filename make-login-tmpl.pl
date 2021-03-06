@@ -6,12 +6,22 @@ use FindBin '$Bin';
 use HTML::Make::Page 'make_page';
 use File::Slurper 'write_text';
 
+make_top ();
 make_login ();
 make_error ();
 make_show_users ();
 make_show_logins ();
 
 exit;
+
+sub make_top
+{
+    my ($html, $body) = make_page (
+	title => 'Top page',
+    );
+    $body->push (make_nav ());
+    write_text ("$Bin/tmpl/top.html", $html->text ());
+}
 
 sub make_show_users
 {
@@ -23,7 +33,7 @@ sub make_show_users
     my $table = $body->push ('table', class => 'show');
     $table->add_text (<<EOF);
 <tr><th>User</th><th>Password</th></tr>
-{{range .}}
+{{range .Thing}}
 <tr><td>{{.Login}}</td><td>{{.Pass}}</td></tr>
 {{end}}
 EOF
@@ -33,7 +43,7 @@ EOF
 sub make_show_logins
 {
     my ($html, $body) = make_page (
-	title => "Users",
+	title => "Logins",
     );
     $body->push (make_nav ());
     $body->push ('h1', text => 'Users');
@@ -42,14 +52,12 @@ sub make_show_logins
 <tr>
 <th>Cookie</th>
 <th>User</th>
-<th>Password</th>
 <th>Last login</th>
 </tr>
-{{range .}}
+{{range .Thing}}
 <tr>
 <td>{{.Cookie}}</td>
 <td>{{.Login}}</td>
-<td>{{.Pass}}</td>
 <td>{{.Last}}</td>
 </tr>
 {{end}}
@@ -60,7 +68,7 @@ EOF
 
 sub make_error
 {
-    my $error = "{{.Error}}";
+    my $error = "{{.Thing.Error}}";
     my ($html, $body) = make_page (
 	title => $error,
     );
@@ -78,20 +86,20 @@ sub make_login
     );
     $body->push (make_nav ());
     $body->push ('h1', text => $title);
-    $body->add_text ("{{if .Login}}\n");
+    $body->add_text ("{{if .Thing.Login}}\n");
     my $table = $body->push ('table');
     my $crow = $table->push ('tr');
     $crow->push ('th', text => 'Your current cookie:');
-    $crow->push ('td', text => '{{.Cookie}}');
+    $crow->push ('td', text => '{{.Thing.Cookie}}');
     my $lrow = $table->push ('tr');
     $lrow->push ('th', text => 'Your login:');
-    $lrow->push ('td', text => '{{.Login}}');
+    $lrow->push ('td', text => '{{.Thing.Login}}');
     my $prow = $table->push ('tr');
     $prow->push ('th', text => 'Your password:');
-    $prow->push ('td', text => '{{.Pass}}');
+    $prow->push ('td', text => '{{.Thing.Pass}}');
     my $trow = $table->push ('tr');
     $trow->push ('th', text => 'Login time:');
-    $trow->push ('td', text => '{{.Last}}');
+    $trow->push ('td', text => '{{.Thing.Last}}');
     $body->add_text ("{{else}}\n");
     my $form = <<EOF;
 <h3>Log in</h3>
@@ -112,11 +120,17 @@ sub make_nav
 {
     my $nav = HTML::Make->new ('div');
     $nav->push ('a', href => '/', text => 'Top page');
+    $nav->add_text ("{{if .User}}\n");
+    $nav->add_text ("👽 ");
+    $nav->push ('span', text => '{{.User}}');
     $nav->push ('a', href => '?action=logout', text => 'Log out');
-    $nav->push ('a', href => '?action=delete-all',
-		text => '❌ Delete all logins');
+    $nav->add_text ("{{else}}\n");
+    $nav->push ('a', href => '?action=login', text => 'Log in');
+    $nav->add_text ("{{end}}\n");
     $nav->push ('a', href => '?show=users', text => 'Show users');
     $nav->push ('a', href => '?show=logins', text => 'Show logins');
+    $nav->push ('a', href => '?action=delete-all',
+		text => '❌ Delete all logins');
     $nav->push ('a', href => '?control=stop', text => '🛑 Stop server');
     return $nav;
 }

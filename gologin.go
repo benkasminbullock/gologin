@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gologin/login"
 	"gologin/store"
 	"html/template"
 	"io/ioutil"
@@ -19,18 +20,11 @@ import (
 	"time"
 )
 
-type LoginStore interface {
-	CheckPassword(user string, password string) (found bool)
-	FindUser(user string) (found bool)
-	LookUpCookie(cookie string) (user string, found bool, err error)
-	DeleteCookie(cookie string) (err error)
-	Init(dir string) (err error)
-	StoreLogin(user string, cookie string) (err error)
-	DeleteAllLogins() (err error)
-	// These methods are for display
-	Login(name string, cookie string) (user interface{})
-	Users() (users interface{})
-	Logins() (logins interface{})
+type Login interface {
+	Init() (err error)
+	LogIn(w http.ResponseWriter, r *http.Request, user string, password string) (err error)
+	LogOut(w http.ResponseWriter, r *http.Request) (err error)
+	User(w http.ResponseWriter, r *http.Request) (user string, err error)
 }
 
 type logintest struct {
@@ -45,7 +39,10 @@ type logintest struct {
 	serving bool
 
 	server *http.Server
-	store  LoginStore
+	store  login.LoginStore
+	login  login.Login
+	User   string
+	Thing  interface{}
 }
 
 //  __  __
@@ -72,13 +69,10 @@ func (l *logintest) errorPage(format string, a ...interface{}) {
 	if !l.serving {
 		return
 	}
-	e := struct {
-		Error string
-	}{
-		Error: fmt.Sprintf(format, a...),
-	}
+	e := map[string]string{"Error": fmt.Sprintf(format, a...)}
+	l.Thing = e
 	errortmpl := l.templates.Lookup("error.html")
-	err := errortmpl.Execute(l.w, e)
+	err := errortmpl.Execute(l.w, l)
 	if err != nil {
 		log.Printf("Error executing error template: %s", err)
 	}
@@ -117,37 +111,6 @@ func (l *logintest) storeLogin(user string, cookie string) {
 var cookieName = "gologin"
 var cookiePath = "/"
 
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-// Make a string to be used as a cookie
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
-}
-
-func (l *logintest) SetCookie(encoded string) {
-	cookie := http.Cookie{
-		Name:  cookieName,
-		Value: encoded,
-		Path:  cookiePath,
-	}
-	http.SetCookie(l.w, &cookie)
-}
-
-func (l *logintest) clearCookie() {
-	cookie := http.Cookie{
-		Name:    cookieName,
-		Value:   "",
-		Path:    cookiePath,
-		MaxAge:  -1,
-		Expires: time.Now().Add(-100 * time.Hour),
-	}
-	http.SetCookie(l.w, &cookie)
-}
-
 // Read a file from the local directory
 func (l *logintest) ReadFile(file string) (b []byte) {
 	dfile := filepath.Join(l.dir, file)
@@ -169,29 +132,6 @@ func (l *logintest) ReadFile(file string) (b []byte) {
 // |  __/ (_| | (_| |  __/\__ \
 // |_|   \__,_|\__, |\___||___/
 //             |___/
-
-func (l *logintest) HandleLogin(name string, cookie *http.Cookie) (newcookie string, ok bool) {
-	ok = l.store.FindUser(name)
-	if !ok {
-		l.errorPage("Unknown user '%s'", name)
-		return "", false
-	}
-	if cookie != nil {
-		l.message("Deleting old cookie %s", cookie.Value)
-		l.store.DeleteCookie(cookie.Value)
-	}
-	pass := l.r.FormValue("password")
-	if !l.store.CheckPassword(name, pass) {
-		l.errorPage("Wrong password '%s' for %s", pass, name)
-		return "", false
-	}
-	newcookie = randSeq(5)
-	l.message("Password %s correct for %s, setting cookie to %s",
-		pass, name, newcookie)
-	l.SetCookie(newcookie)
-	l.storeLogin(name, newcookie)
-	return newcookie, true
-}
 
 // https://medium.com/@int128/shutdown-http-server-by-endpoint-in-go-2a0e2d7f9b8c
 func (l *logintest) StopServing() {
@@ -220,9 +160,10 @@ func (l *logintest) DoTemplate(template string, thing interface{}) {
 	if tmpl == nil {
 		panic(fmt.Sprintf("No such template %s", template))
 	}
-	err := tmpl.Execute(l.w, thing)
+	l.Thing = thing
+	err := tmpl.Execute(l.w, l)
 	if err != nil {
-		panic(fmt.Sprintf("Error from tmpl.Execute: %s", err))
+		fmt.Fprintf(os.Stderr, "Error from tmpl.Execute: %s\n", err)
 	}
 }
 
@@ -246,16 +187,7 @@ func (l *logintest) LookUpCookie(cookie string) (login string, ok bool) {
 
 func (l *logintest) HandleAction(action string) {
 	if action == "logout" {
-		cookie, err := l.r.Cookie(cookieName)
-		if err != nil {
-			if err == http.ErrNoCookie {
-				l.errorPage("You were not logged in")
-				return
-			}
-			l.errorPage("Error from r.Cookie: %s", err)
-		}
-		l.store.DeleteCookie(cookie.Value)
-		l.clearCookie()
+		l.login.LogOut(l.w, l.r)
 		l.errorPage("You are now logged out")
 		return
 	}
@@ -265,7 +197,29 @@ func (l *logintest) HandleAction(action string) {
 		l.errorPage("All current logins have been deleted")
 		return
 	}
+	if action == "login" {
+		l.LoginPage()
+		return
+	}
 	l.errorPage("Unknown action '%s'", action)
+}
+
+func (l *logintest) LoginPage() {
+	user := l.r.FormValue("user-name")
+	if len(user) > 0 {
+		password := l.r.FormValue("password")
+		if len(password) == 0 {
+			l.errorPage("No password")
+			return
+		}
+		err := l.login.LogIn(l.w, l.r, user, password)
+		if err != nil {
+			l.errorPage("Error logging in: %s", err)
+			return
+		}
+		http.Redirect(l.w, l.r, "/", http.StatusFound)
+	}
+	l.DoTemplate("login.html", map[string]string{})
 }
 
 // Handle web requests
@@ -275,16 +229,16 @@ func handler(l *logintest) {
 		l.w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	var err error
+	l.User, err = l.login.User(l.w, l.r)
+	if err != nil {
+		l.errorPage("Error getting user: %s", err)
+		return
+	}
 	control := l.r.FormValue("control")
 	if len(control) > 0 {
 		l.HandleControl(control)
 		return
-	}
-	cookie, err := l.r.Cookie(cookieName)
-	if err != nil {
-		if err != http.ErrNoCookie {
-			l.errorPage("Error from cookie: %s", err)
-		}
 	}
 	show := l.r.FormValue("show")
 	if len(show) > 0 {
@@ -296,41 +250,7 @@ func handler(l *logintest) {
 		l.HandleAction(action)
 		return
 	}
-	logtmp := l.templates.Lookup("login.html")
-	cookieOk := false
-	if cookie != nil {
-		l.message("Cookie %s", cookie.Value)
-	}
-	var name string
-	var cookieval string
-	if cookie != nil {
-		cookieval = cookie.Value
-		if len(cookieval) > 0 {
-			name, cookieOk = l.LookUpCookie(cookieval)
-		}
-	}
-	if !cookieOk {
-		if cookie == nil {
-			l.message("No cookie was sent")
-		} else {
-			l.message("Cookie %s was not found", cookieval)
-			l.clearCookie()
-		}
-		loginOk := false
-		name = l.r.FormValue("user-name")
-		if len(name) > 0 {
-			l.message("Looking for user name %s", name)
-			cookieval, loginOk = l.HandleLogin(name, cookie)
-			if !loginOk {
-				return
-			}
-		}
-	}
-	err = logtmp.Execute(l.w, l.store.Login(name, cookieval))
-	if err != nil {
-		l.errorPage("Error executing template: %s", err)
-		return
-	}
+	l.DoTemplate("top.html", map[string]string{})
 }
 
 func MakeHandler(l *logintest, f func(*logintest)) http.HandlerFunc {
@@ -375,6 +295,7 @@ func main() {
 	l.setup()
 	l.store = &store.Store{}
 	l.store.Init(l.dir)
+	l.login.Init(&l.store, cookieName, cookiePath)
 	serve := ":" + l.config["port"]
 	l.server = &http.Server{Addr: serve}
 	http.HandleFunc("/", MakeHandler(&l, handler))

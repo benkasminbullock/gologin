@@ -140,7 +140,7 @@ func (s *Store) readUsers() (err error) {
 }
 
 func (s *Store) StoreLogin(user string, cookie string) (err error) {
-	s.message("Storking loging cookie %s for %s", cookie, user)
+	s.message("Storing login cookie %s for %s", cookie, user)
 	li := login{
 		Login:  user,
 		Cookie: cookie,
@@ -204,10 +204,6 @@ func (s *Store) FindUser(name string) (found bool) {
 	return found
 }
 
-func (s *Store) Users() (users interface{}) {
-	return s.users
-}
-
 func (s *Store) Login(name string, cookie string) (u interface{}) {
 	logins := s.user2logins[name]
 	for i, r := range logins {
@@ -220,4 +216,8 @@ func (s *Store) Login(name string, cookie string) (u interface{}) {
 
 func (s *Store) Logins() (logins interface{}) {
 	return s.logins
+}
+
+func (s *Store) Users() (users interface{}) {
+	return s.users
 }
