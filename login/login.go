@@ -90,6 +90,13 @@ func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, pass
 		lo.message("Deleting old cookie %s", cookie.Value)
 		(*lo.store).DeleteCookie(cookie.Value)
 	}
+	pwok := (*lo.store).CheckPassword(user, password)
+	if !pwok {
+		if cookie != nil {
+			lo.clearCookie(w)
+		}
+		return fmt.Errorf("Wrong password for %s", user)
+	}
 	newcookie := randSeq(5)
 	lo.message("Password %s correct for %s, setting cookie to %s",
 		password, user, newcookie)
