@@ -39,7 +39,7 @@ type logintest struct {
 	serving bool
 
 	server *http.Server
-	store  login.LoginStore
+	store  store.Store
 	login  login.Login
 	User   string
 	Thing  interface{}
@@ -295,7 +295,7 @@ func main() {
 		verbose: true,
 	}
 	l.setup()
-	l.store = &store.Store{}
+	l.store = store.Store{}
 	l.store.Init(l.dir)
 	l.login.Init(&l.store, cookieName, cookiePath)
 	serve := ":" + l.config["port"]

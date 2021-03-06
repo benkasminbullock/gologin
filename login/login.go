@@ -16,15 +16,10 @@ type LoginStore interface {
 	DeleteCookie(cookie string) (err error)
 	Init(dir string) (err error)
 	StoreLogin(user string, cookie string) (err error)
-	DeleteAllLogins() (err error)
-	// These methods are for display
-	Login(name string, cookie string) (user interface{})
-	Users() (users interface{})
-	Logins() (logins interface{})
 }
 
 type Login struct {
-	store      *LoginStore
+	store      LoginStore
 	cookieName string
 	cookiePath string
 }
@@ -37,7 +32,7 @@ func (lo *Login) message(format string, a ...interface{}) {
 	fmt.Printf("\n")
 }
 
-func (lo *Login) Init(store *LoginStore, cookieName string, cookiePath string) (err error) {
+func (lo *Login) Init(store LoginStore, cookieName string, cookiePath string) (err error) {
 	lo.store = store
 	lo.cookieName = cookieName
 	lo.cookiePath = cookiePath
@@ -76,7 +71,7 @@ func (lo *Login) setCookie(w http.ResponseWriter, encoded string) {
 }
 
 func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, password string) (err error) {
-	ok := (*lo.store).FindUser(user)
+	ok := lo.store.FindUser(user)
 	if !ok {
 		return fmt.Errorf("Unknown user '%s'", user)
 	}
@@ -88,9 +83,9 @@ func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, pass
 	}
 	if cookie != nil {
 		lo.message("Deleting old cookie %s", cookie.Value)
-		(*lo.store).DeleteCookie(cookie.Value)
+		lo.store.DeleteCookie(cookie.Value)
 	}
-	pwok := (*lo.store).CheckPassword(user, password)
+	pwok := lo.store.CheckPassword(user, password)
 	if !pwok {
 		if cookie != nil {
 			lo.clearCookie(w)
@@ -101,7 +96,7 @@ func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, pass
 	lo.message("Password %s correct for %s, setting cookie to %s",
 		password, user, newcookie)
 	lo.setCookie(w, newcookie)
-	err = (*lo.store).StoreLogin(user, newcookie)
+	err = lo.store.StoreLogin(user, newcookie)
 
 	return err
 }
@@ -116,7 +111,7 @@ func (lo *Login) LogOut(w http.ResponseWriter, r *http.Request) (err error) {
 		return fmt.Errorf("Error from r.Cookie: %s", err)
 	}
 	fmt.Printf("%v\n", lo.store)
-	(*lo.store).DeleteCookie(cookie.Value)
+	lo.store.DeleteCookie(cookie.Value)
 	lo.clearCookie(w)
 	return err
 }
@@ -132,7 +127,7 @@ func (lo *Login) User(w http.ResponseWriter, r *http.Request) (user string, err 
 	if cookie == nil {
 		return "", nil
 	}
-	login, ok, err := (*lo.store).LookUpCookie(cookie.Value)
+	login, ok, err := lo.store.LookUpCookie(cookie.Value)
 	if err != nil {
 		return "", err
 	}
