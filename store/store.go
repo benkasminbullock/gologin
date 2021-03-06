@@ -101,8 +101,7 @@ func (s *Store) readLogins() (err error) {
 		if os.IsNotExist(err) {
 			s.message("There is no logins file '%s'", s.loginfile)
 			// Allow empty user file
-			s.initlogins()
-			return
+			return s.initlogins()
 		}
 		return err
 	}
@@ -129,7 +128,10 @@ func (s *Store) readUsers() (err error) {
 	if err != nil {
 		return err
 	}
-	json.Unmarshal(b, &s.users)
+	err = json.Unmarshal(b, &s.users)
+	if err != nil {
+		return err
+	}
 	s.name2user = make(map[string]*user, len(s.users))
 	for i, r := range s.users {
 		s.name2user[r.Login] = &s.users[i]
@@ -138,9 +140,11 @@ func (s *Store) readUsers() (err error) {
 }
 
 func (s *Store) StoreLogin(user string, cookie string) (err error) {
+	s.message("Storking loging cookie %s for %s", cookie, user)
 	li := login{
 		Login:  user,
 		Cookie: cookie,
+		Last:   time.Now(),
 	}
 	s.logins = append(s.logins, li)
 	s.user2logins[user] = append(s.user2logins[user], &s.logins[len(s.logins)-1])
@@ -176,6 +180,7 @@ func (s *Store) DeleteCookie(cookie string) (err error) {
 	s.logins = append(s.logins[0:offset], s.logins[offset+1:]...)
 	return s.writeLogins()
 }
+
 func (s *Store) CheckPassword(login string, password string) (found bool) {
 	user, ok := s.name2user[login]
 	if !ok {
@@ -190,9 +195,9 @@ func (s *Store) DeleteAllLogins() (err error) {
 		return err
 	}
 	s.logins = nil
-	s.initlogins()
-	return nil
+	return s.initlogins()
 }
+
 func (s *Store) FindUser(name string) (found bool) {
 	s.message("Looking for user %s", name)
 	_, found = s.name2user[name]
@@ -202,6 +207,7 @@ func (s *Store) FindUser(name string) (found bool) {
 func (s *Store) Users() (users interface{}) {
 	return s.users
 }
+
 func (s *Store) Login(name string, cookie string) (u interface{}) {
 	logins := s.user2logins[name]
 	for i, r := range logins {
@@ -211,6 +217,7 @@ func (s *Store) Login(name string, cookie string) (u interface{}) {
 	}
 	return &login{}
 }
+
 func (s *Store) Logins() (logins interface{}) {
 	return s.logins
 }
