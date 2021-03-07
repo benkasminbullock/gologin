@@ -1,3 +1,9 @@
+/* This implements logging in of users via a username and a password,
+   logging out of users, and looking up a user via cookies which are
+   communicated by http.ResponseWriter and *http.Request. It uses an
+   interface login.LoginStore to communicate with persistent
+   storage. */
+
 package login
 
 import (
@@ -9,12 +15,19 @@ import (
 	"time"
 )
 
+/* This is the interface for communicating with persistent storage. */
+
 type LoginStore interface {
+	/* Given a username and a password, is that a valid login or not?
+	 */
 	CheckPassword(user string, password string) (found bool)
-	FindUser(user string) (found bool)
-	LookUpCookie(cookie string) (user string, found bool, err error)
+	/* Delete "cookie" from persistent storage. */
 	DeleteCookie(cookie string) (err error)
-	Init(dir string) (err error)
+	/* Does the username "user" exist in the permanent storage? */
+	FindUser(user string) (found bool)
+	/* Given a cookie, find the associated user account. */
+	LookUpCookie(cookie string) (user string, found bool, err error)
+	/* Store a new login cookie for the user. */
 	StoreLogin(user string, cookie string) (err error)
 }
 
@@ -22,9 +35,13 @@ type Login struct {
 	store      LoginStore
 	cookieName string
 	cookiePath string
+	verbose    bool
 }
 
 func (lo *Login) message(format string, a ...interface{}) {
+	if !lo.verbose {
+		return
+	}
 	_, file, line, _ := runtime.Caller(1)
 	_, file = filepath.Split(file)
 	fmt.Printf("%s:%d: ", file, line)
@@ -110,7 +127,6 @@ func (lo *Login) LogOut(w http.ResponseWriter, r *http.Request) (err error) {
 		}
 		return fmt.Errorf("Error from r.Cookie: %s", err)
 	}
-	fmt.Printf("%v\n", lo.store)
 	lo.store.DeleteCookie(cookie.Value)
 	lo.clearCookie(w)
 	return err

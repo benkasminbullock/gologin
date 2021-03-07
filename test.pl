@@ -17,7 +17,7 @@ if (! -f $bin) {
 my $pid = fork ();
 if ($pid == 0) {
     system ($bin);
-    print "Finished serving.\n";
+#    print "Finished serving.\n";
     exit;
 }
 sleep (1);
@@ -48,11 +48,10 @@ ok (scalar (@cookies) == 0, "Cookie deleted");
 ok (! cookie_file ($value), "$value deleted from cookie file");
 
 my $badlogin = ['user-name' => 'mariko', password => 'nyanburger'];
-my $reply = $ua->post ("$url?action=login", $badlogin);
+$reply = $ua->post ("$url?action=login", $badlogin);
 ok ($reply->is_success (), "OK post req with password");
 @cookies = $cj->cookies_for ($url);
 ok (scalar (@cookies) == 0, "No cookie set with bad password");
-
 $ua->get ("$url?control=stop");
 done_testing ();
 exit;

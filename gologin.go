@@ -1,4 +1,6 @@
-// Example of making persistent cookies in Go.
+/* This is a testing program for login/login.go which uses the
+   simplistic storage in store/store.go to provide an http server with
+   a login, logout, and user validation. */
 
 package main
 
@@ -20,12 +22,14 @@ import (
 	"time"
 )
 
-type Login interface {
-	Init() (err error)
-	LogIn(w http.ResponseWriter, r *http.Request, user string, password string) (err error)
-	LogOut(w http.ResponseWriter, r *http.Request) (err error)
-	User(w http.ResponseWriter, r *http.Request) (user string, err error)
-}
+// /* This is provided by login/login.go. */
+
+// type Login interface {
+// 	Init() (err error)
+// 	LogIn(w http.ResponseWriter, r *http.Request, user string, password string) (err error)
+// 	LogOut(w http.ResponseWriter, r *http.Request) (err error)
+// 	User(w http.ResponseWriter, r *http.Request) (user string, err error)
+// }
 
 type logintest struct {
 	w         http.ResponseWriter
@@ -42,7 +46,8 @@ type logintest struct {
 	store  store.Store
 	login  login.Login
 	User   string
-	Thing  interface{}
+	// Lazy template variable
+	Thing interface{}
 }
 
 //  __  __
@@ -86,31 +91,6 @@ func (l *logintest) Fatalf(format string, a ...interface{}) {
 	log.Fatalf(format, a)
 }
 
-//  ____  _
-// / ___|| |_ ___  _ __ __ _  __ _  ___
-// \___ \| __/ _ \| '__/ _` |/ _` |/ _ \
-//  ___) | || (_) | | | (_| | (_| |  __/
-// |____/ \__\___/|_|  \__,_|\__, |\___|
-//                           |___/
-
-// Store "li" to the login file.
-func (l *logintest) storeLogin(user string, cookie string) {
-	err := l.store.StoreLogin(user, cookie)
-	if err != nil {
-		l.errorPage("Error storing cookie for %s: %s", user, err)
-	}
-}
-
-//   ____            _    _
-//  / ___|___   ___ | | _(_) ___  ___
-// | |   / _ \ / _ \| |/ / |/ _ \/ __|
-// | |__| (_) | (_) |   <| |  __/\__ \
-//  \____\___/ \___/|_|\_\_|\___||___/
-//
-
-var cookieName = "gologin"
-var cookiePath = "/"
-
 // Read a file from the local directory
 func (l *logintest) ReadFile(file string) (b []byte) {
 	dfile := filepath.Join(l.dir, file)
@@ -125,13 +105,6 @@ func (l *logintest) ReadFile(file string) (b []byte) {
 	}
 	return b
 }
-
-//  ____
-// |  _ \ __ _  __ _  ___  ___
-// | |_) / _` |/ _` |/ _ \/ __|
-// |  __/ (_| | (_| |  __/\__ \
-// |_|   \__,_|\__, |\___||___/
-//             |___/
 
 // https://medium.com/@int128/shutdown-http-server-by-endpoint-in-go-2a0e2d7f9b8c
 func (l *logintest) StopServing() {
@@ -175,16 +148,9 @@ func (l *logintest) HandleShow(show string) {
 		l.DoTemplate("show-logins.html", l.store.Logins())
 	} else if show == "users" {
 		l.DoTemplate("show-users.html", l.store.Users())
+	} else {
+		l.errorPage("Unknown show parameter %s", show)
 	}
-}
-
-func (l *logintest) LookUpCookie(cookie string) (login string, ok bool) {
-	login, ok, err := l.store.LookUpCookie(cookie)
-	if err != nil {
-		l.errorPage("Error looking up cookie: %s", err)
-		return login, false
-	}
-	return login, ok
 }
 
 func (l *logintest) HandleAction(action string) {
@@ -209,6 +175,7 @@ func (l *logintest) HandleAction(action string) {
 func (l *logintest) LoginPage() {
 	user := l.r.FormValue("user-name")
 	if len(user) > 0 {
+		// Respond to a login attempt
 		password := l.r.FormValue("password")
 		if len(password) == 0 {
 			l.errorPage("No password")
@@ -221,12 +188,16 @@ func (l *logintest) LoginPage() {
 		}
 		http.Redirect(l.w, l.r, "/", http.StatusFound)
 	}
+	// No parameters, just show the form
 	l.DoTemplate("login.html", map[string]string{})
 }
 
 // Handle web requests
 func handler(l *logintest) {
 	url := l.r.URL
+	// A nuisance in testing this is that the browser keeps asking for
+	// favicon.ico, so we have to deal with those requests somehow to
+	// stop the logging messages becoming too frequent.
 	if strings.Contains(url.Path, "favicon.ico") {
 		l.w.WriteHeader(http.StatusNotFound)
 		return
@@ -273,7 +244,8 @@ func (l *logintest) readConfigJSON(file string) {
 	}
 }
 
-// Set up "l" to serve web pages.
+// Set up "l" to serve web pages. This runs before starting the
+// server.
 func (l *logintest) setup() {
 	self := os.Args[0]
 	var err error
@@ -289,10 +261,13 @@ func (l *logintest) setup() {
 	}
 }
 
+var cookieName = "gologin"
+var cookiePath = "/"
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	l := logintest{
-		verbose: true,
+		verbose: false,
 	}
 	l.setup()
 	l.store = store.Store{}

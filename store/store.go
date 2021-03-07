@@ -1,3 +1,8 @@
+/* This is a trivial example for testing of login/login.go which uses
+   JSON text files to provide persistent storage. It supplies the
+   interface login.LoginStore as well as some other things used by
+   gologin.go to display logins and users. */
+
 package store
 
 import (
@@ -36,9 +41,13 @@ type Store struct {
 	// Given a user, look up their logins.
 	user2logins map[string][]*login
 	name2user   map[string]*user
+	verbose     bool
 }
 
 func (s *Store) message(format string, a ...interface{}) {
+	if !s.verbose {
+		return
+	}
 	_, file, line, _ := runtime.Caller(1)
 	_, file = filepath.Split(file)
 	fmt.Printf("%s:%d: ", file, line)
@@ -81,14 +90,14 @@ func (s *Store) initlogins() (err error) {
 			return fmt.Errorf("Can't find user with name '%s'", login)
 		}
 		s.cookie2user[r.Cookie] = user
-		s.AddUserLogin(user.Login, &s.logins[i])
+		s.addUserLogin(user.Login, &s.logins[i])
 	}
 	return nil
 }
 
 // Add a login to the user's list of logins.
 
-func (s *Store) AddUserLogin(username string, lo *login) {
+func (s *Store) addUserLogin(username string, lo *login) {
 	uls := s.user2logins[username]
 	uls = append(uls, lo)
 	s.user2logins[username] = uls
