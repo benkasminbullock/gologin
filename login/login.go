@@ -80,9 +80,10 @@ func (lo *Login) clearCookie(w http.ResponseWriter) {
 
 func (lo *Login) setCookie(w http.ResponseWriter, encoded string) {
 	cookie := http.Cookie{
-		Name:  lo.cookieName,
-		Value: encoded,
-		Path:  lo.cookiePath,
+		Name:    lo.cookieName,
+		Value:   encoded,
+		Path:    lo.cookiePath,
+		Expires: time.Now().Add(time.Hour * 24 * 365),
 	}
 	http.SetCookie(w, &cookie)
 }

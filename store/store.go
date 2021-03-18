@@ -198,6 +198,26 @@ func (s *Store) CheckPassword(login string, password string) (found bool) {
 	return password == user.Pass
 }
 
+func (s *Store) DeleteUserLogins(name string) (err error) {
+	_, ok := s.name2user[name]
+	if !ok {
+		return fmt.Errorf("Unknown user '%s'", name)
+	}
+	newlogins := make([]login, len(s.logins))
+	found := false
+	for _, l := range s.logins {
+		if l.Login != name {
+			newlogins = append(newlogins, l)
+		} else {
+			found = true
+		}
+	}
+	if found {
+		s.logins = newlogins
+	}
+	return nil
+}
+
 func (s *Store) DeleteAllLogins() (err error) {
 	err = os.Remove(s.loginfile)
 	if err != nil {
