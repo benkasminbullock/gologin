@@ -17,7 +17,7 @@ import (
 
 type login struct {
 	Login  string    `json:"login"`
-	Pass   string    `json:"pass"`
+	Pass   string    `json:"pass,omitEmpty"`
 	Cookie string    `json:"cookie"`
 	Last   time.Time `json:"last"`
 }
@@ -41,7 +41,7 @@ type Store struct {
 	// Given a user, look up their logins.
 	user2logins map[string][]*login
 	name2user   map[string]*user
-	verbose     bool
+	Verbose     bool
 }
 
 func (s *Store) message(format string, a ...interface{}) {
@@ -96,7 +96,6 @@ func (s *Store) initlogins() (err error) {
 }
 
 // Add a login to the user's list of logins.
-
 func (s *Store) addUserLogin(username string, lo *login) {
 	uls := s.user2logins[username]
 	uls = append(uls, lo)
