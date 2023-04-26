@@ -161,10 +161,13 @@ func (s *Store) StoreLogin(user string, cookie string) (err error) {
 }
 
 func (s *Store) LookUpCookie(cookie string) (user string, found bool, err error) {
+	s.message("Looking for user with cookie %s", cookie)
 	u, found := s.cookie2user[cookie]
 	if !found {
+		s.message("This cookie wasn't found")
 		return "", false, nil
 	}
+	s.message("This cookie corresponded to %s", u.Login)
 	return u.Login, true, nil
 }
 
