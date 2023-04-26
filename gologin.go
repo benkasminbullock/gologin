@@ -86,9 +86,9 @@ func (l *logintest) errorPage(format string, a ...interface{}) {
 /* Send an error message to the browser and quit. */
 func (l *logintest) Fatalf(format string, a ...interface{}) {
 	if l.serving {
-		l.errorPage(format, a)
+		l.errorPage(format, a...)
 	}
-	log.Fatalf(format, a)
+	log.Fatalf(format, a...)
 }
 
 // Read a file from the local directory
