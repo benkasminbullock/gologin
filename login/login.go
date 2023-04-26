@@ -35,11 +35,11 @@ type Login struct {
 	store      LoginStore
 	cookieName string
 	cookiePath string
-	verbose    bool
+	Verbose    bool
 }
 
 func (lo *Login) message(format string, a ...interface{}) {
-	if !lo.verbose {
+	if !lo.Verbose {
 		return
 	}
 	_, file, line, _ := runtime.Caller(1)
