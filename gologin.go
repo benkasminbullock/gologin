@@ -8,8 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"gologin/login"
-	"gologin/store"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -20,6 +18,9 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/benkasminbullock/gologin/login"
+	"github.com/benkasminbullock/gologin/store"
 )
 
 // /* This is provided by login/login.go. */

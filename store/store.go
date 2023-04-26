@@ -45,7 +45,7 @@ type Store struct {
 }
 
 func (s *Store) message(format string, a ...interface{}) {
-	if !s.verbose {
+	if !s.Verbose {
 		return
 	}
 	_, file, line, _ := runtime.Caller(1)
