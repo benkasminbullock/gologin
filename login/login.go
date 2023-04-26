@@ -91,11 +91,13 @@ func (lo *Login) setCookie(w http.ResponseWriter, encoded string) {
 func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, password string) (err error) {
 	ok := lo.store.FindUser(user)
 	if !ok {
+		lo.message("Unknown user '%s'", user)
 		return fmt.Errorf("Unknown user '%s'", user)
 	}
 	cookie, err := r.Cookie(lo.cookieName)
 	if err != nil {
 		if err != http.ErrNoCookie {
+			lo.message("Error with cookie %s", err)
 			return err
 		}
 	}
@@ -105,6 +107,8 @@ func (lo *Login) LogIn(w http.ResponseWriter, r *http.Request, user string, pass
 	}
 	pwok := lo.store.CheckPassword(user, password)
 	if !pwok {
+		lo.message("Password %s not correct for %s, not logging in",
+			password, user)
 		if cookie != nil {
 			lo.clearCookie(w)
 		}

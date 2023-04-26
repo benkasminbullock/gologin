@@ -3,6 +3,7 @@ use Z;
 my $verbose = 1;
 chdir $Bin or die $!;
 my $tag = `git describe --tags`;
+$tag = trim ($tag);
 my $n = $tag;
 $n =~ s!v0\.1\.!!;
 $n++;
