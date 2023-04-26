@@ -150,10 +150,13 @@ func (lo *Login) User(w http.ResponseWriter, r *http.Request) (user string, err 
 	}
 	login, ok, err := lo.store.LookUpCookie(cookie.Value)
 	if err != nil {
+		lo.message("Error looking up cookie %s", err)
 		return "", err
 	}
 	if !ok {
+		lo.message("Cookie was not valid")
 		return "", nil
 	}
+	lo.message("Cookie was valid for %s", login)
 	return login, nil
 }
